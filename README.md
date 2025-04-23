@@ -1,9 +1,10 @@
 # waluigi
 
+[![CircleCI](https://dl.circleci.com/status-badge/img/gh/giantswarm/waluigi/tree/main.svg?style=svg)](https://dl.circleci.com/status-badge/redirect/gh/giantswarm/waluigi/tree/main)
 [![Go Reference](https://pkg.go.dev/badge/github.com/giantswarm/waluigi.svg)](https://pkg.go.dev/github.com/giantswarm/waluigi)
 
 
-CLI tool to pretty print the logs from CAPI controllers.
+CLI tool to pretty print the logs from CAPI controllers. Companion to [https://github.com/giantswarm/luigi](https://github.com/giantswarm/luigi)
 
 It was vibe coded using ChatGTP. Feel free to burn the code, change it or rewrite it.
 
@@ -17,11 +18,11 @@ go install github.com/giantswarm/waluigi
 ```bash
 $ waluigi --help
 Usage of waluigi:
-  -controller string
+  --controller string
     	Filter logs by the 'controller' field
-  -name string
+  --name string
     	Filter logs by the 'name' field
-  -namespace string
+  --namespace string
     	Filter logs by the 'namespace' field
 ```
 
@@ -30,11 +31,3 @@ Usage of waluigi:
 ```bash
 kubectl logs -f -n capi-system deploy/capi-controller-manager | waluigi
 ```
-
-
-
-### Some suggestions for your README
-
-After you have created your new repository, you may want to add some of these badges to the top of your README.
-
-- **CircleCI:** After enabling builds for this repo via [this link](https://circleci.com/setup-project/gh/giantswarm/REPOSITORY_NAME), you can find badge code on [this page](https://app.circleci.com/settings/project/github/giantswarm/REPOSITORY_NAME/status-badges).
