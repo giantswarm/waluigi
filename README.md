@@ -31,3 +31,5 @@ Usage of waluigi:
 ```bash
 kubectl logs -f -n capi-system deploy/capi-controller-manager | waluigi
 ```
+
+![image](https://github.com/user-attachments/assets/7694aa10-b6ca-49d5-8b0b-bcdd60a27495)
