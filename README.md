@@ -9,6 +9,7 @@ CLI tool to pretty print the logs from CAPI controllers. Companion to [https://g
 It was vibe coded using ChatGTP. Feel free to burn the code, change it or rewrite it.
 
 ## Installation
+
 ```bash
 go install github.com/giantswarm/waluigi
 ```
@@ -18,12 +19,14 @@ go install github.com/giantswarm/waluigi
 ```bash
 $ waluigi --help
 Usage of waluigi:
-  --controller string
-    	Filter logs by the 'controller' field
-  --name string
-    	Filter logs by the 'name' field
-  --namespace string
-    	Filter logs by the 'namespace' field
+  -controller string
+        Filter logs by the 'controller' field
+  -level string
+        Filter logs by level: info, warning, error, debug
+  -name string
+        Filter logs by the 'name' field
+  -namespace string
+        Filter logs by the 'namespace' field
 ```
 
 ### Example

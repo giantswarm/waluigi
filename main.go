@@ -25,12 +25,13 @@ var (
 	filterName       = flag.String("name", "", "Filter logs by the 'name' field")
 	filterNamespace  = flag.String("namespace", "", "Filter logs by the 'namespace' field")
 	filterController = flag.String("controller", "", "Filter logs by the 'controller' field")
+	filterLevel      = flag.String("level", "", "Filter logs by level: info, warning, error, debug")
 
 	// This regex matches the log header.
 	logHeaderRegex = regexp.MustCompile(`^([IWEF])(\d{4})\s+([\d:.]+)\s+\d+\s+([^\]]+)]\s+"([^"]+)"(.*)$`)
-	// Updated keyValueRegex to capture both key="value" and key={...} patterns.
-	// Group 1: key; Group 3: quoted value; Group 4: JSON value.
-	keyValueRegex = regexp.MustCompile(`(\w+)=("((?:[^"\\]|\\.)*)"|(\{.*?\}))`)
+	// Updated keyValueRegex to capture key=<...>, key="value" and key={...} patterns.
+	// Group 1: key; Group 2: angle-bracket value; Group 3: quoted value; Group 4: JSON value.
+	keyValueRegex = regexp.MustCompile(`(\w+)=(?:<([^>]+)>|"((?:[^"\\]|\\.)*)"|(\{.*?\}))`)
 
 	// Keys that are removed from the key/value section because they are shown in the headline.
 	omitFromKV = map[string]bool{
@@ -65,16 +66,41 @@ func parseLine(line string) {
 	}
 
 	// Parse header parts.
-	level, date, timeStr, location, message, kvPart := matches[1], matches[2], matches[3], matches[4], matches[5], matches[6]
+	level, date, timeStr, location, message, kvPart :=
+		matches[1], matches[2], matches[3], matches[4], matches[5], matches[6]
+
+	// Apply level filter
+	if *filterLevel != "" {
+		want := strings.ToLower(*filterLevel)
+		var wantChar string
+		switch want {
+		case "info":
+			wantChar = "I"
+		case "warning", "warn":
+			wantChar = "W"
+		case "error":
+			wantChar = "E"
+		case "debug":
+			wantChar = "D"
+		default:
+			// unrecognized, skip filtering
+			wantChar = ""
+		}
+		if wantChar != "" && level != wantChar {
+			return
+		}
+	}
+
 	fields := make(map[string]string)
 
 	// Capture key/value pairs.
-	kvs := keyValueRegex.FindAllStringSubmatch(kvPart, -1)
-	for _, kv := range kvs {
-		// If group 3 (quoted value) is non-empty, use it; otherwise use group 4 (the JSON value).
-		if kv[3] != "" {
+	for _, kv := range keyValueRegex.FindAllStringSubmatch(kvPart, -1) {
+		switch {
+		case kv[2] != "":
+			fields[kv[1]] = strings.TrimSpace(kv[2])
+		case kv[3] != "":
 			fields[kv[1]] = kv[3]
-		} else {
+		default:
 			fields[kv[1]] = kv[4]
 		}
 	}
@@ -91,39 +117,41 @@ func parseLine(line string) {
 		return
 	}
 
-	// Build headline fields.
-	headerColor := colorForLevel(level)
-	controller := fields["controller"]
-	nsName := fmt.Sprintf("%s/%s", fields["namespace"], fields["name"])
-
-	// For error logs, capture the "err" field and prepare it for printing in red.
-	var errField string
+	// For error logs, merge the "err" field into the message and color it red.
 	if level == "E" {
 		if errMsg, exists := fields["err"]; exists {
-			errField = Red + errMsg + Reset
+			message = fmt.Sprintf("%s: %s%s%s", message, Red, errMsg, Reset)
 		}
 	}
 
-	// Build the headline (no pipes here).
-	// The log level, date, time, and location are colored using headerColor.
-	// Controller and nsName are colored in white/green, while the message is bright white.
-	headline := fmt.Sprintf("%s %s %s %s@%s %s %s",
-		headerColor+level+Reset,
-		headerColor+date+Reset,
-		headerColor+timeStr+Reset,
-		White+controller+Reset,
-		White+location+Reset,
-		Green+nsName+Reset,
-		BrightWhite+message+Reset,
-	)
+	// Build headline fields.
+	headerColor := colorForLevel(level)
+	controller := fields["controller"]
+	nsRaw := fmt.Sprintf("%s/%s", fields["namespace"], fields["name"])
 
-	// If there is an error field (only for error logs), append it after the message.
-	if errField != "" {
-		headline = headline + " - " + errField
+	// Set namespace/name and message colors.
+	nsColor := Green
+	msgColor := BrightWhite
+	if level == "E" {
+		nsColor = Red
+		msgColor = Red
 	}
 
+	nsName := nsColor + nsRaw + Reset
+	coloredMsg := msgColor + message + Reset
+
+	// Build the headline (no pipes here).
+	headline := fmt.Sprintf("%s %s %s %s@%s %s %s",
+		headerColor+level,
+		date,
+		timeStr,
+		controller,
+		location+Reset,
+		nsName,
+		coloredMsg,
+	)
+
 	// Build the structured key/value section.
-	// Only the fields after the message (like cluster, AWSCluster, etc.) will be joined with a red pipe.
 	redPipe := Red + " | " + Reset
 	kvParts := []string{}
 
@@ -132,35 +160,60 @@ func parseLine(line string) {
 	printed := map[string]bool{}
 	for _, k := range orderedKeys {
 		if val, ok := fields[k]; ok {
-			kvParts = append(kvParts, fmt.Sprintf("%s%s:%s %s%s", Gray, k, Reset, Gray, val+Reset))
+			kvParts = append(kvParts,
+				fmt.Sprintf("%s%s:%s %s%s", Gray, k, Reset, Gray, val+Reset))
 			printed[k] = true
 		}
 	}
 	// Then add any remaining key/value pairs (skipping those omitted).
 	for k, v := range fields {
 		if !omitFromKV[k] && !printed[k] {
-			kvParts = append(kvParts, fmt.Sprintf("%s%s:%s %s%s", Gray, k, Reset, Gray, v+Reset))
+			kvParts = append(kvParts,
+				fmt.Sprintf("%s%s:%s %s%s", Gray, k, Reset, Gray, v+Reset))
 		}
 	}
 
-	// Join the key/value parts with the red pipe separator, but only add the section if there are any fields.
-	var kvSection string
+	// Combine and print.
 	if len(kvParts) > 0 {
-		kvSection = redPipe + strings.Join(kvParts, redPipe)
+		fmt.Println(headline + redPipe + strings.Join(kvParts, redPipe))
+	} else {
+		fmt.Println(headline)
 	}
-
-	// Combine the headline with the structured key/value section.
-	finalLine := headline + kvSection
-	fmt.Println(finalLine)
 }
 
 func main() {
 	flag.Parse() // Parse filter flags.
 
 	scanner := bufio.NewScanner(os.Stdin)
+
+	var buf string
+	var collecting bool
+
 	for scanner.Scan() {
-		parseLine(scanner.Text())
+		line := scanner.Text()
+
+		// detect start of a multi-line err block
+		if !collecting && strings.Contains(line, `err=<`) && !strings.Contains(line, ">") {
+			collecting = true
+			buf = line
+			continue
+		}
+
+		if collecting {
+			// append the continued lines
+			buf += " " + strings.TrimSpace(line)
+			// detect end of err block
+			if strings.Contains(line, ">") {
+				collecting = false
+				parseLine(buf)
+			}
+			continue
+		}
+
+		// normal single-line log
+		parseLine(line)
 	}
+
 	if err := scanner.Err(); err != nil {
 		fmt.Fprintln(os.Stderr, "Error reading input:", err)
 	}
