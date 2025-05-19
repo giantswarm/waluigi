@@ -11,7 +11,7 @@ It was vibe coded using ChatGTP. Feel free to burn the code, change it or rewrit
 ## Installation
 
 ```bash
-go install github.com/giantswarm/waluigi
+go install github.com/giantswarm/waluigi@latest
 ```
 
 ## Usage
