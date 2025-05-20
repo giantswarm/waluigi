@@ -1,19 +1,9 @@
-# DO NOT EDIT. Generated with:
-#
-#    devctl
-#
-#    https://github.com/giantswarm/devctl/blob/f2b5cf71dfa175afa70f721eca503072d0e7d4c4/pkg/gen/input/workflows/internal/file/gitleaks.yaml.template
-#
-name: gitleaks
+name: Gitleaks
 
-on: [pull_request]
+on: pull_request
 
 jobs:
-  gitleaks:
-    runs-on: ubuntu-24.04
-    steps:
-    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      with:
-        fetch-depth: '0'
-    - name: gitleaks-action
-      uses: giantswarm/gitleaks-action@main
+  call-gitleaks:
+    uses: giantswarm/github/.github/workflows/shared-gitleaks.yaml@reusable-workflows
+    secrets:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
