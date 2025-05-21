@@ -5,5 +5,3 @@ on: pull_request
 jobs:
   call-gitleaks:
     uses: giantswarm/github-workflows/.github/workflows/shared.gitleaks.yaml@main
-    secrets:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

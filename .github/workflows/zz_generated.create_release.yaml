@@ -14,7 +14,4 @@ jobs:
   call-create-release:
     uses: giantswarm/github-workflows/.github/workflows/shared.create-release.yaml@main
     secrets:
-      GITHUB_TOKEN:                       ${{ secrets.GITHUB_TOKEN }}
       TAYLORBOT_GITHUB_ACTION:           ${{ secrets.TAYLORBOT_GITHUB_ACTION }}
-      CODE_SIGNING_CERT_BUNDLE_BASE64:    ${{ secrets.CODE_SIGNING_CERT_BUNDLE_BASE64 }}
-      CODE_SIGNING_CERT_BUNDLE_PASSWORD:  ${{ secrets.CODE_SIGNING_CERT_BUNDLE_PASSWORD }}

@@ -16,7 +16,5 @@ jobs:
     with:
       branch: ${{ github.event.inputs.branch || github.ref_name }}
     secrets:
-      # forward whatever your template needs:
-      GITHUB_TOKEN:     ${{ secrets.GITHUB_TOKEN }}
       HERALD_APP_ID:    ${{ secrets.HERALD_APP_ID }}
       HERALD_APP_KEY:   ${{ secrets.HERALD_APP_KEY }}
