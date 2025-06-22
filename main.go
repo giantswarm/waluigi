@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -59,17 +60,111 @@ func colorForLevel(level string) string {
 }
 
 func parseLine(line string) {
-	matches := logHeaderRegex.FindStringSubmatch(line)
-	if matches == nil {
-		fmt.Println(line)
-		return
+	var (
+		level    string
+		date     string
+		timeStr  string
+		location string
+		message  string
+		fields   = make(map[string]string)
+	)
+
+	trimmed := strings.TrimSpace(line)
+	if strings.HasPrefix(trimmed, "{") {
+		// JSON-style
+		var raw map[string]interface{}
+		if err := json.Unmarshal([]byte(trimmed), &raw); err != nil {
+			fmt.Println(line)
+			return
+		}
+		// level
+		if lvl, ok := raw["level"].(string); ok {
+			switch strings.ToLower(lvl) {
+			case "info":
+				level = "I"
+			case "warning", "warn":
+				level = "W"
+			case "error":
+				level = "E"
+			case "debug":
+				level = "D"
+			default:
+				level = "I"
+			}
+		}
+		// ts
+		if ts, ok := raw["ts"].(string); ok {
+			date = ts
+		}
+		// msg
+		if m, ok := raw["msg"].(string); ok {
+			message = m
+		}
+		// controller
+		if c, ok := raw["controller"].(string); ok {
+			fields["controller"] = c
+		}
+		// namespace, name, reconcileID
+		if ns, ok := raw["namespace"].(string); ok {
+			fields["namespace"] = ns
+		}
+		if nm, ok := raw["name"].(string); ok {
+			fields["name"] = nm
+		}
+		if rid, ok := raw["reconcileID"].(string); ok {
+			fields["reconcileID"] = rid
+		}
+		// controllerKind
+		if ck, ok := raw["controllerKind"].(string); ok {
+			fields["controllerKind"] = ck
+		}
+		// AWSCluster object
+		if ac, ok := raw["AWSCluster"].(map[string]interface{}); ok {
+			nm2, _ := ac["name"].(string)
+			ns2, _ := ac["namespace"].(string)
+			fields["AWSCluster"] = fmt.Sprintf("%s/%s", ns2, nm2)
+		}
+		// Other fields (skip level, ts, msg)
+		for k, v := range raw {
+			if k == "level" || k == "ts" || k == "msg" {
+				continue
+			}
+			if _, seen := fields[k]; seen {
+				continue
+			}
+			switch vv := v.(type) {
+			case string:
+				fields[k] = vv
+			default:
+				if b, err := json.Marshal(vv); err == nil {
+					fields[k] = string(b)
+				}
+			}
+		}
+		// For JSON-style logs, we only show controller (no @location).
+		location = ""
+	} else {
+		// klog-style
+		matches := logHeaderRegex.FindStringSubmatch(line)
+		if matches == nil {
+			fmt.Println(line)
+			return
+		}
+		level, date, timeStr, location, message = matches[1], matches[2], matches[3], matches[4], matches[5]
+		kvPart := matches[6]
+		for _, kv := range keyValueRegex.FindAllStringSubmatch(kvPart, -1) {
+			switch {
+			case kv[2] != "":
+				fields[kv[1]] = strings.TrimSpace(kv[2])
+			case kv[3] != "":
+				fields[kv[1]] = kv[3]
+			default:
+				fields[kv[1]] = kv[4]
+			}
+		}
 	}
 
-	// Parse header parts.
-	level, date, timeStr, location, message, kvPart :=
-		matches[1], matches[2], matches[3], matches[4], matches[5], matches[6]
-
-	// Apply level filter
+	// Level filter
 	if *filterLevel != "" {
 		want := strings.ToLower(*filterLevel)
 		var wantChar string
@@ -82,31 +177,13 @@ func parseLine(line string) {
 			wantChar = "E"
 		case "debug":
 			wantChar = "D"
-		default:
-			// unrecognized, skip filtering
-			wantChar = ""
 		}
 		if wantChar != "" && level != wantChar {
 			return
 		}
 	}
 
-	fields := make(map[string]string)
-
-	// Capture key/value pairs.
-	for _, kv := range keyValueRegex.FindAllStringSubmatch(kvPart, -1) {
-		switch {
-		case kv[2] != "":
-			fields[kv[1]] = strings.TrimSpace(kv[2])
-		case kv[3] != "":
-			fields[kv[1]] = kv[3]
-		default:
-			fields[kv[1]] = kv[4]
-		}
-	}
-
-	// Apply filtering.
-	// If a filter flag is specified and the corresponding field does not match, skip the line.
+	// Name/namespace/controller filters
 	if *filterName != "" && fields["name"] != *filterName {
 		return
 	}
@@ -117,10 +194,10 @@ func parseLine(line string) {
 		return
 	}
 
-	// For error logs, merge the "err" field into the message and color it red.
+	// For error logs, merge the "err" field into the message.
 	if level == "E" {
 		if errMsg, exists := fields["err"]; exists {
-			message = fmt.Sprintf("%s: %s%s%s", message, Red, errMsg, Reset)
+			message = fmt.Sprintf("%s: %s", message, errMsg)
 		}
 	}
 
@@ -140,20 +217,26 @@ func parseLine(line string) {
 	nsName := nsColor + nsRaw + Reset
 	coloredMsg := msgColor + message + Reset
 
-	// Build the headline (no pipes here).
-	headline := fmt.Sprintf("%s %s %s %s@%s %s %s",
+	// Build "controller[@location]" slot
+	slot := controller
+	if location != "" {
+		slot = fmt.Sprintf("%s@%s", controller, location)
+	}
+	slot = slot + Reset
+
+	// Final headline
+	headline := fmt.Sprintf("%s %s %s %s %s %s",
 		headerColor+level,
 		date,
 		timeStr,
-		controller,
-		location+Reset,
+		slot,
 		nsName,
 		coloredMsg,
 	)
 
 	// Build the structured key/value section.
 	redPipe := Red + " | " + Reset
-	kvParts := []string{}
+	var kvParts []string
 
 	// Use an ordered key list first.
 	orderedKeys := []string{"cluster", "AWSCluster", "machinePool", "AWSMachinePool"}
@@ -165,7 +248,7 @@ func parseLine(line string) {
 			printed[k] = true
 		}
 	}
-	// Then add any remaining key/value pairs (skipping those omitted).
+	// Then add any remaining key/value pairs.
 	for k, v := range fields {
 		if !omitFromKV[k] && !printed[k] {
 			kvParts = append(kvParts,
